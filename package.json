@@ -1,0 +1,15 @@
+{
+  "name": "post-to-medium",
+  "version": "1.0.0",
+  "scripts": {
+    "auth": "ts-node auth.ts",
+    "post-title": "ts-node post-title.ts"
+  },
+  "dependencies": {
+    "playwright": "^1.52.0"
+  },
+  "devDependencies": {
+    "ts-node": "^10.9.2",
+    "typescript": "^5.8.3"
+  }
+}
