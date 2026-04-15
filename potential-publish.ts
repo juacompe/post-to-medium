@@ -1,7 +1,7 @@
 import { chromium, Page } from 'playwright';
 
 const CDP_URL     = 'http://localhost:9222';
-const STORIES_URL = 'https://medium.com/me/stories/public';
+const STORIES_URL = 'https://medium.com/me/stories?tab=posts-published';
 
 interface Story {
   title: string;
@@ -11,46 +11,31 @@ interface Story {
 
 async function scrapeMyStories(page: Page): Promise<Story[]> {
   await page.goto(STORIES_URL, { waitUntil: 'networkidle' });
+  await page.waitForSelector('h2, h3', { timeout: 15000 }).catch(() => {});
+
   return page.evaluate(() => {
     const storyPattern = /-([a-f0-9]{8,})(?:[/?#]|$)/;
+    const seenIds = new Set<string>();
     const results: { title: string; url: string; inOddsTeam: boolean }[] = [];
-    const seen = new Set<string>();
 
     document.querySelectorAll('a[href]').forEach(el => {
       const a = el as HTMLAnchorElement;
-      if (!storyPattern.test(a.href)) return;
-
       const m = a.href.match(storyPattern);
-      if (!m || seen.has(m[1])) return;
-      seen.add(m[1]);
+      if (!m) return;
+      const id = m[1];
+      if (seenIds.has(id)) return;
 
-      // Grab title from heading inside or near the link
-      const heading =
-        a.querySelector('h2, h3') ??
-        a.closest('article, [data-testid]')?.querySelector('h2, h3');
+      // Only the title link wraps a heading — skip thumbnail/logo links.
+      // Don't mark seenId yet so we pick up the title link on the next pass.
+      const heading = a.querySelector('h2, h3');
       const title = heading?.textContent?.trim();
       if (!title) return;
 
-      // Walk up the DOM to find the row-level container, then check for an
-      // odds-team link in the same row (the Publication column).
-      // Stop as soon as we find a container that also has a heading of its own
-      // (meaning we've gone too far and reached a multi-story container).
-      let container: Element | null = a.parentElement;
-      let inOddsTeam = false;
-      let levels = 0;
-      while (container && container !== document.body && levels < 12) {
-        // If we've gone past the story's own heading, we're too far up
-        const headings = container.querySelectorAll('h2, h3');
-        if (headings.length > 1) break; // multiple stories — stop
+      seenIds.add(id); // mark only when title is found
 
-        const pubLink = container.querySelector(
-          'a[href*="odds-team"], a[href*="odds.team"]',
-        );
-        if (pubLink) { inOddsTeam = true; break; }
-
-        container = container.parentElement;
-        levels++;
-      }
+      // Stories in odds-team use medium.com/odds-team/… as canonical URL;
+      // personal stories (not submitted) use medium.com/@juacompe/…
+      const inOddsTeam = a.href.includes('/odds-team/');
 
       results.push({ title, url: a.href, inOddsTeam });
     });
