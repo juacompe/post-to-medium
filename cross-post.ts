@@ -112,23 +112,11 @@ async function waitForUser(message: string): Promise<void> {
 async function uploadFeatureImage(page: Page, imageUrl: string) {
   const imagePath = await downloadImage(imageUrl);
   try {
-    await page.evaluate(() => {
-      const btn = Array.from(document.querySelectorAll('button')).find(b =>
-        b.innerHTML.includes('moreFilled'),
-      );
-      btn?.click();
-    });
-    await page.waitForTimeout(300);
-
-    await page.evaluate(() => {
-      const btn = Array.from(document.querySelectorAll('button')).find(
-        b => b.textContent?.trim() === 'Change featured image',
-      );
-      btn?.click();
-    });
-    await page.waitForTimeout(300);
-
-    const fileInput = await page.waitForSelector('input[type="file"]', { timeout: 5000 });
+    await waitForUser(
+      `🖼️  Feature image ready.\n   Click the image icon at the top of the article (before the first paragraph) to open the file browser.`,
+    );
+    // User has opened the file browser — intercept it and inject the downloaded image.
+    const fileInput = await page.waitForSelector('input[type="file"]', { timeout: 30000 });
     await fileInput.setInputFiles(imagePath);
     await page.waitForTimeout(3000);
     console.log('✓ Feature image uploaded');
