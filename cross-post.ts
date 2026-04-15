@@ -40,7 +40,15 @@ async function downloadImage(url: string): Promise<string> {
 }
 
 async function insertTitle(page: Page, title: string) {
-  await page.waitForSelector('h3.graf--title', { timeout: 15000 });
+  const titleEl = await page.waitForSelector('h3.graf--title', { timeout: 15000 });
+  await titleEl.click();
+
+  // Medium only creates the draft (and sets up autosave) after the first keystroke.
+  // Type a placeholder character to trigger draft creation and wait for the redirect
+  // to /p/{id}/edit before replacing with the real title.
+  await page.keyboard.type('_');
+  await page.waitForURL(/medium\.com\/p\/.+\/edit/, { timeout: 30000 });
+
   await page.evaluate(text => {
     const el = document.querySelector<HTMLElement>('h3.graf--title');
     if (!el) return;
@@ -48,6 +56,7 @@ async function insertTitle(page: Page, title: string) {
     document.execCommand('selectAll');
     document.execCommand('insertText', false, text);
   }, title);
+
   // Press Enter to move cursor from title into the body before pasting content
   await page.keyboard.press('Enter');
   await page.waitForTimeout(300);
@@ -136,11 +145,6 @@ async function main() {
 
   const page = await context.newPage();
   await page.goto('https://medium.com/new-story');
-
-  // Wait for Medium to create the draft and redirect to /p/{id}/edit
-  // before touching the editor — autosave connection isn't ready until then
-  await page.waitForURL(/medium\.com\/p\/.+\/edit/, { timeout: 30000 });
-  console.log(`Draft created: ${page.url()}`);
 
   await insertTitle(page, post.title);
   await pasteContent(page, post.html);
