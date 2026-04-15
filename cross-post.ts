@@ -3,6 +3,7 @@ import { writeFile, unlink } from 'fs/promises';
 import { tmpdir } from 'os';
 import { extname, join } from 'path';
 
+
 const CDP_URL = 'http://localhost:9222';
 
 interface GhostPost {
@@ -62,65 +63,42 @@ async function insertTitle(page: Page, title: string) {
   console.log(`✓ Title: "${title}"`);
 }
 
-async function sanitizeHtml(page: Page, rawHtml: string, limit?: number): Promise<string> {
-  // Allowlist-based sanitizer: rebuild the DOM keeping only elements Medium
-  // understands. Ghost emits <figure>, kg-* attrs, and other custom nodes that
-  // trigger a null tagName dereference inside Medium's paste handler no matter
-  // how aggressively we strip with a denylist.
-  return page.evaluate(({ raw, limit }) => {
-    const ALLOWED = new Set([
-      'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
-      'ul', 'ol', 'li', 'blockquote', 'pre', 'code',
-      'strong', 'em', 'b', 'i', 'u', 's', 'br', 'a',
-    ]);
-
+async function extractParagraphs(page: Page, rawHtml: string, limit?: number): Promise<{ tag: string; text: string }[]> {
+  return page.evaluate(({ raw, limit }: { raw: string; limit?: number }) => {
     const doc = new DOMParser().parseFromString(raw, 'text/html');
-
-    function clean(node: Node): Node | null {
-      if (node.nodeType === 3 /* TEXT_NODE */) return node.cloneNode();
-      if (node.nodeType !== 1 /* ELEMENT_NODE */) return null;
-
-      const el = node as Element;
-      const tag = el.tagName.toLowerCase();
-
-      if (!ALLOWED.has(tag)) {
-        // Unsupported element: unwrap and keep children
-        const frag = doc.createDocumentFragment();
-        el.childNodes.forEach(c => { const n = clean(c); if (n) frag.appendChild(n); });
-        return frag;
-      }
-
-      const newEl = doc.createElement(tag);
-      if (tag === 'a' && el.hasAttribute('href')) newEl.setAttribute('href', el.getAttribute('href')!);
-      el.childNodes.forEach(c => { const n = clean(c); if (n) newEl.appendChild(n); });
-      return newEl;
-    }
-
-    const out = doc.createElement('div');
-    doc.body.childNodes.forEach(c => { const n = clean(c); if (n) out.appendChild(n); });
-
-    if (limit) {
-      const blocks = out.querySelectorAll('p, h1, h2, h3, h4, h5, h6, ul, ol, blockquote, pre');
-      Array.from(blocks).slice(limit).forEach(el => el.remove());
-    }
-
-    return out.innerHTML;
+    const blocks = doc.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, blockquote, pre');
+    const all = limit ? Array.from(blocks).slice(0, limit) : Array.from(blocks);
+    return all
+      .map(el => ({ tag: el.tagName.toLowerCase(), text: (el.textContent ?? '').trim() }))
+      .filter(b => b.text);
   }, { raw: rawHtml, limit });
 }
 
-async function pasteContent(page: Page, rawHtml: string, limit?: number) {
-  const html = await sanitizeHtml(page, rawHtml, limit);
+async function typeContent(page: Page, rawHtml: string, limit?: number) {
+  const blocks = await extractParagraphs(page, rawHtml, limit);
 
-  // Use execCommand('insertHTML') instead of clipboard paste.
-  // Medium's paste event handler has a tagName null bug for any non-trivial HTML.
-  // execCommand goes through the browser's own editing pipeline, bypassing
-  // Medium's paste handler entirely while still firing 'input' so autosave triggers.
-  await page.evaluate(html => {
-    document.execCommand('insertHTML', false, html);
-  }, html);
+  // Type each paragraph via keyboard events so Medium's editor state updates
+  // and autosave triggers — execCommand('insertHTML') inserts into the DOM but
+  // bypasses Medium's internal state tracker, so the draft never saves.
+  for (const { tag, text } of blocks) {
+    // Use Medium's markdown shortcuts to preserve basic structure
+    let prefix = '';
+    if (tag === 'h1' || tag === 'h2') prefix = '# ';
+    else if (tag === 'h3') prefix = '## ';
+    else if (tag === 'h4') prefix = '### ';
+    else if (tag === 'blockquote') prefix = '> ';
+    else if (tag === 'li') prefix = '- ';
 
-  console.log('✓ Content inserted, waiting for autosave...');
-  await page.waitForTimeout(5000);
+    if (prefix) {
+      await page.keyboard.type(prefix);
+      await page.waitForTimeout(100); // give Medium time to apply the markdown shortcut
+    }
+    await page.keyboard.type(text);
+    await page.keyboard.press('Enter');
+  }
+
+  console.log(`✓ ${blocks.length} paragraphs typed, waiting for autosave...`);
+  await page.waitForTimeout(3000);
 }
 
 async function uploadFeatureImage(page: Page, imageUrl: string) {
@@ -188,7 +166,7 @@ async function main() {
   await page.goto('https://medium.com/new-story');
 
   await insertTitle(page, post.title);
-  await pasteContent(page, post.html, limit);
+  await typeContent(page, post.html, limit);
 
   if (post.featureImage) {
     await uploadFeatureImage(page, post.featureImage);
