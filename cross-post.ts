@@ -62,12 +62,12 @@ async function insertTitle(page: Page, title: string) {
   console.log(`✓ Title: "${title}"`);
 }
 
-async function sanitizeHtml(page: Page, rawHtml: string): Promise<string> {
+async function sanitizeHtml(page: Page, rawHtml: string, limit?: number): Promise<string> {
   // Allowlist-based sanitizer: rebuild the DOM keeping only elements Medium
   // understands. Ghost emits <figure>, kg-* attrs, and other custom nodes that
   // trigger a null tagName dereference inside Medium's paste handler no matter
   // how aggressively we strip with a denylist.
-  return page.evaluate(raw => {
+  return page.evaluate(({ raw, limit }) => {
     const ALLOWED = new Set([
       'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
       'ul', 'ol', 'li', 'blockquote', 'pre', 'code',
@@ -98,12 +98,18 @@ async function sanitizeHtml(page: Page, rawHtml: string): Promise<string> {
 
     const out = doc.createElement('div');
     doc.body.childNodes.forEach(c => { const n = clean(c); if (n) out.appendChild(n); });
+
+    if (limit) {
+      const blocks = out.querySelectorAll('p, h1, h2, h3, h4, h5, h6, ul, ol, blockquote, pre');
+      Array.from(blocks).slice(limit).forEach(el => el.remove());
+    }
+
     return out.innerHTML;
-  }, rawHtml);
+  }, { raw: rawHtml, limit });
 }
 
-async function pasteContent(page: Page, rawHtml: string) {
-  const html = await sanitizeHtml(page, rawHtml);
+async function pasteContent(page: Page, rawHtml: string, limit?: number) {
+  const html = await sanitizeHtml(page, rawHtml, limit);
 
   // Use execCommand('insertHTML') instead of clipboard paste.
   // Medium's paste event handler has a tagName null bug for any non-trivial HTML.
@@ -161,9 +167,10 @@ async function addTags(page: Page, tags: string[]) {
 async function main() {
   const ghostUrl = process.argv[2];
   if (!ghostUrl) {
-    console.error('Usage: ts-node cross-post.ts <ghost-url>');
+    console.error('Usage: ts-node cross-post.ts <ghost-url> [paragraph-limit]');
     process.exit(1);
   }
+  const limit = process.argv[3] ? parseInt(process.argv[3]) : undefined;
 
   const browser = await chromium.connectOverCDP(CDP_URL);
   const context = browser.contexts()[0];
@@ -181,7 +188,7 @@ async function main() {
   await page.goto('https://medium.com/new-story');
 
   await insertTitle(page, post.title);
-  await pasteContent(page, post.html);
+  await pasteContent(page, post.html, limit);
 
   if (post.featureImage) {
     await uploadFeatureImage(page, post.featureImage);
