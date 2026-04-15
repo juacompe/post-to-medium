@@ -41,7 +41,6 @@ async function downloadImage(url: string): Promise<string> {
 
 async function insertTitle(page: Page, title: string) {
   await page.waitForSelector('h3.graf--title', { timeout: 15000 });
-  // Use execCommand to select within the title element only (Meta+A would select across the whole editor)
   await page.evaluate(text => {
     const el = document.querySelector<HTMLElement>('h3.graf--title');
     if (!el) return;
@@ -49,15 +48,14 @@ async function insertTitle(page: Page, title: string) {
     document.execCommand('selectAll');
     document.execCommand('insertText', false, text);
   }, title);
+  // Press Enter to move cursor from title into the body before pasting content
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(300);
   console.log(`✓ Title: "${title}"`);
 }
 
 async function pasteContent(page: Page, html: string) {
-  // Grant clipboard permissions so navigator.clipboard.write() works
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
-
-  // Write HTML to the real clipboard, then trigger an actual paste keystroke
-  // so Medium's editor receives a native paste event and saves via its normal path
   await page.evaluate(async html => {
     await navigator.clipboard.write([
       new ClipboardItem({
@@ -69,11 +67,8 @@ async function pasteContent(page: Page, html: string) {
       }),
     ]);
   }, html);
-
-  const section = await page.waitForSelector('.postArticle-content section', { timeout: 10000 });
-  await section.click();
+  // Cursor is already in the body after Enter — paste directly without clicking
   await page.keyboard.press('Meta+V');
-
   console.log('✓ Content pasted, waiting for autosave...');
   await page.waitForTimeout(5000);
 }
