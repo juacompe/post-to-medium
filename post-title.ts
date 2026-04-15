@@ -1,8 +1,6 @@
 import { chromium } from 'playwright';
-import path from 'path';
-import fs from 'fs';
 
-const AUTH_STATE_PATH = path.join(__dirname, 'auth-state.json');
+const CDP_URL = 'http://localhost:9222';
 
 async function main() {
   const title = process.argv[2];
@@ -11,13 +9,9 @@ async function main() {
     process.exit(1);
   }
 
-  if (!fs.existsSync(AUTH_STATE_PATH)) {
-    console.error('No auth state found. Run "npm run auth" first.');
-    process.exit(1);
-  }
-
-  const browser = await chromium.launch({ headless: false });
-  const context = await browser.newContext({ storageState: AUTH_STATE_PATH });
+  // Connect to existing Chrome (must be launched with --remote-debugging-port=9222)
+  const browser = await chromium.connectOverCDP(CDP_URL);
+  const context = browser.contexts()[0];
   const page = await context.newPage();
 
   console.log('Opening Medium new story...');
@@ -37,6 +31,7 @@ async function main() {
   const url = page.url();
   console.log(`Draft URL: ${url}`);
 
+  // Disconnect only — do not close the user's Chrome
   await browser.close();
 }
 
