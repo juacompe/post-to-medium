@@ -24,10 +24,16 @@ make chrome
 
 Login Medium ใน Chrome window ที่เปิดขึ้นมา (ถ้ายังไม่ได้ login)
 
-**Step 2 — Post title ไปยัง Medium**
+**Step 2a — Post แค่ title**
 
 ```bash
 make post TITLE="My Article Title"
 ```
 
-จะเปิด Medium new story, ใส่ title, รอ autosave แล้ว print draft URL ใน terminal
+**Step 2b — Cross-post จาก Ghost blog**
+
+```bash
+make cp URL="https://blog.odd-e.com/your-post-slug/"
+```
+
+จะดึง title, content, feature image, และ tags จาก Ghost แล้ว cross-post ไปยัง Medium เป็น draft
