@@ -1,6 +1,5 @@
 import { chromium, Page } from 'playwright';
 import { writeFile, unlink } from 'fs/promises';
-import { execSync } from 'child_process';
 import { tmpdir } from 'os';
 import { extname, join } from 'path';
 
@@ -63,49 +62,58 @@ async function insertTitle(page: Page, title: string) {
   console.log(`✓ Title: "${title}"`);
 }
 
-async function pasteContent(page: Page, rawHtml: string) {
-  // Sanitize in the browser before pasting. Ghost emits <figure>, custom kg-*
-  // elements, and rich attributes that trigger a null tagName error in Medium's
-  // paste handler — corrupting editor state and blocking autosave.
-  const html = await page.evaluate(raw => {
+async function sanitizeHtml(page: Page, rawHtml: string): Promise<string> {
+  // Allowlist-based sanitizer: rebuild the DOM keeping only elements Medium
+  // understands. Ghost emits <figure>, kg-* attrs, and other custom nodes that
+  // trigger a null tagName dereference inside Medium's paste handler no matter
+  // how aggressively we strip with a denylist.
+  return page.evaluate(raw => {
+    const ALLOWED = new Set([
+      'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+      'ul', 'ol', 'li', 'blockquote', 'pre', 'code',
+      'strong', 'em', 'b', 'i', 'u', 's', 'br', 'a',
+    ]);
+
     const doc = new DOMParser().parseFromString(raw, 'text/html');
 
-    // Replace <figure><img>…</figure> with the bare <img>; drop captions
-    doc.querySelectorAll('figure').forEach(fig => {
-      const img = fig.querySelector('img');
-      if (img) fig.replaceWith(img);
-      else fig.remove();
-    });
+    function clean(node: Node): Node | null {
+      if (node.nodeType === 3 /* TEXT_NODE */) return node.cloneNode();
+      if (node.nodeType !== 1 /* ELEMENT_NODE */) return null;
 
-    // Remove elements Medium's editor doesn't understand
-    doc
-      .querySelectorAll('iframe, video, audio, script, style, aside, nav, header, footer, svg, canvas, form')
-      .forEach(el => el.remove());
+      const el = node as Element;
+      const tag = el.tagName.toLowerCase();
 
-    // Strip class / style / id / data-* so Medium's node mapper doesn't choke
-    doc.querySelectorAll('*').forEach(el => {
-      [...el.attributes]
-        .filter(a => ['class', 'style', 'id'].includes(a.name) || a.name.startsWith('data-'))
-        .forEach(a => el.removeAttribute(a.name));
-    });
+      if (!ALLOWED.has(tag)) {
+        // Unsupported element: unwrap and keep children
+        const frag = doc.createDocumentFragment();
+        el.childNodes.forEach(c => { const n = clean(c); if (n) frag.appendChild(n); });
+        return frag;
+      }
 
-    return doc.body.innerHTML;
+      const newEl = doc.createElement(tag);
+      if (tag === 'a' && el.hasAttribute('href')) newEl.setAttribute('href', el.getAttribute('href')!);
+      el.childNodes.forEach(c => { const n = clean(c); if (n) newEl.appendChild(n); });
+      return newEl;
+    }
+
+    const out = doc.createElement('div');
+    doc.body.childNodes.forEach(c => { const n = clean(c); if (n) out.appendChild(n); });
+    return out.innerHTML;
   }, rawHtml);
+}
 
-  // Write sanitized HTML to a temp file and push to the OS clipboard via
-  // AppleScript so Medium receives a real native paste event (navigator.clipboard
-  // requires a user gesture inside evaluate and silently fails otherwise).
-  const tmpHtml = join(tmpdir(), 'medium-content.html');
-  await writeFile(tmpHtml, html);
-  try {
-    execSync(`osascript -e 'set the clipboard to (read POSIX file "${tmpHtml}" as «class HTML»)'`);
-  } finally {
-    await unlink(tmpHtml);
-  }
+async function pasteContent(page: Page, rawHtml: string) {
+  const html = await sanitizeHtml(page, rawHtml);
 
-  await page.waitForTimeout(200);
-  await page.keyboard.press('Meta+V');
-  console.log('✓ Content pasted, waiting for autosave...');
+  // Use execCommand('insertHTML') instead of clipboard paste.
+  // Medium's paste event handler has a tagName null bug for any non-trivial HTML.
+  // execCommand goes through the browser's own editing pipeline, bypassing
+  // Medium's paste handler entirely while still firing 'input' so autosave triggers.
+  await page.evaluate(html => {
+    document.execCommand('insertHTML', false, html);
+  }, html);
+
+  console.log('✓ Content inserted, waiting for autosave...');
   await page.waitForTimeout(5000);
 }
 
