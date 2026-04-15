@@ -137,6 +137,11 @@ async function main() {
   const page = await context.newPage();
   await page.goto('https://medium.com/new-story');
 
+  // Wait for Medium to create the draft and redirect to /p/{id}/edit
+  // before touching the editor — autosave connection isn't ready until then
+  await page.waitForURL(/medium\.com\/p\/.+\/edit/, { timeout: 30000 });
+  console.log(`Draft created: ${page.url()}`);
+
   await insertTitle(page, post.title);
   await pasteContent(page, post.html);
 
