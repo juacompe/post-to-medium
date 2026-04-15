@@ -12,3 +12,6 @@ post:
 
 cp:
 	npm run cross-post -- "$(URL)" $(LIMIT)
+
+potential-publish:
+	npm run potential-publish
