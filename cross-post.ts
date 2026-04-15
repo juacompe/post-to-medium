@@ -137,14 +137,28 @@ async function uploadFeatureImage(page: Page, imageUrl: string) {
 async function addTags(page: Page, tags: string[]) {
   if (tags.length === 0) return;
   await page.getByRole('button', { name: 'Publish' }).first().click();
-  await page.waitForTimeout(500);
-  const tagsInput = page.locator('input[placeholder*="tag" i], input[placeholder*="topic" i]').first();
+  await page.waitForTimeout(1000); // wait for publish dialog to fully load
+
+  const tagsInput = page.locator('input[placeholder*="topic" i], input[placeholder*="tag" i]').first();
+  const added: string[] = [];
+
   for (const tag of tags.slice(0, 5)) {
     await tagsInput.fill(tag);
-    await page.keyboard.press('Enter');
+    await page.waitForTimeout(600); // wait for autocomplete dropdown
+
+    // Medium topics are from a predefined list — click the first dropdown suggestion.
+    // If nothing matches, clear and skip.
+    try {
+      const suggestion = page.locator('[role="option"]').first();
+      await suggestion.click({ timeout: 1500 });
+      added.push(tag);
+    } catch {
+      await tagsInput.clear();
+    }
   }
-  await page.keyboard.press('Escape');
-  console.log(`✓ Tags added: ${tags.slice(0, 5).join(', ')}`);
+
+  // Leave the publish dialog open so the user can decide to publish or save as draft.
+  console.log(`✓ Tags added: ${added.join(', ') || '(none matched Medium topics)'}`);
 }
 
 async function main() {
