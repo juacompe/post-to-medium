@@ -63,11 +63,38 @@ async function insertTitle(page: Page, title: string) {
   console.log(`✓ Title: "${title}"`);
 }
 
-async function pasteContent(page: Page, html: string) {
-  // Write HTML to a temp file and set it on the OS clipboard via AppleScript.
-  // navigator.clipboard.write() inside evaluate() requires a user gesture and
-  // may silently fail, leaving the clipboard empty when Meta+V fires.
-  // osascript sets the clipboard at the OS level so Medium receives a real paste.
+async function pasteContent(page: Page, rawHtml: string) {
+  // Sanitize in the browser before pasting. Ghost emits <figure>, custom kg-*
+  // elements, and rich attributes that trigger a null tagName error in Medium's
+  // paste handler — corrupting editor state and blocking autosave.
+  const html = await page.evaluate(raw => {
+    const doc = new DOMParser().parseFromString(raw, 'text/html');
+
+    // Replace <figure><img>…</figure> with the bare <img>; drop captions
+    doc.querySelectorAll('figure').forEach(fig => {
+      const img = fig.querySelector('img');
+      if (img) fig.replaceWith(img);
+      else fig.remove();
+    });
+
+    // Remove elements Medium's editor doesn't understand
+    doc
+      .querySelectorAll('iframe, video, audio, script, style, aside, nav, header, footer, svg, canvas, form')
+      .forEach(el => el.remove());
+
+    // Strip class / style / id / data-* so Medium's node mapper doesn't choke
+    doc.querySelectorAll('*').forEach(el => {
+      [...el.attributes]
+        .filter(a => ['class', 'style', 'id'].includes(a.name) || a.name.startsWith('data-'))
+        .forEach(a => el.removeAttribute(a.name));
+    });
+
+    return doc.body.innerHTML;
+  }, rawHtml);
+
+  // Write sanitized HTML to a temp file and push to the OS clipboard via
+  // AppleScript so Medium receives a real native paste event (navigator.clipboard
+  // requires a user gesture inside evaluate and silently fails otherwise).
   const tmpHtml = join(tmpdir(), 'medium-content.html');
   await writeFile(tmpHtml, html);
   try {
@@ -77,7 +104,6 @@ async function pasteContent(page: Page, html: string) {
   }
 
   await page.waitForTimeout(200);
-  // Cursor is already in body (after pressing Enter from title)
   await page.keyboard.press('Meta+V');
   console.log('✓ Content pasted, waiting for autosave...');
   await page.waitForTimeout(5000);
