@@ -1,4 +1,5 @@
 TITLE ?= Hello from Playwright
+URL   ?= https://blog.odd-e.com/sudy-dthiim-extraordinary-team/
 
 chrome:
 	/Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome \
@@ -7,3 +8,6 @@ chrome:
 
 post:
 	npm run post-title -- "$(TITLE)"
+
+cp:
+	npm run cross-post -- "$(URL)"
