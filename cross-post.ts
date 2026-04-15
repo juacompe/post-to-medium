@@ -43,21 +43,14 @@ async function insertTitle(page: Page, title: string) {
   const titleEl = await page.waitForSelector('h3.graf--title', { timeout: 15000 });
   await titleEl.click();
 
-  // Medium only creates the draft (and sets up autosave) after the first keystroke.
-  // Type a placeholder character to trigger draft creation and wait for the redirect
-  // to /p/{id}/edit before replacing with the real title.
-  await page.keyboard.type('_');
+  // Type the full title via keyboard so every character goes through Medium's
+  // normal input pipeline and gets saved. execCommand('insertText') after the
+  // fact shows in the DOM but bypasses the editor state tracker, so it never saves.
+  // The first keystroke triggers draft creation; waitForURL waits for the redirect.
+  await page.keyboard.type(title);
   await page.waitForURL(/medium\.com\/p\/.+\/edit/, { timeout: 30000 });
+  await page.waitForTimeout(500); // let Medium finish setting up autosave
 
-  await page.evaluate(text => {
-    const el = document.querySelector<HTMLElement>('h3.graf--title');
-    if (!el) return;
-    el.focus();
-    document.execCommand('selectAll');
-    document.execCommand('insertText', false, text);
-  }, title);
-
-  // Press Enter to move cursor from title into the body before pasting content
   await page.keyboard.press('Enter');
   await page.waitForTimeout(300);
   console.log(`✓ Title: "${title}"`);
