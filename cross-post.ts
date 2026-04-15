@@ -153,6 +153,13 @@ async function main() {
   const browser = await chromium.connectOverCDP(CDP_URL);
   const context = browser.contexts()[0];
 
+  // Close any Medium editor tabs left open from previous runs.
+  // Medium shows a "Saving Changes" conflict dialog when multiple editor
+  // sessions are open simultaneously, which blocks autosave.
+  const stale = context.pages().filter(p => /medium\.com\/(new-story|p\/.+\/edit)/.test(p.url()));
+  for (const p of stale) await p.close();
+  if (stale.length) console.log(`Closed ${stale.length} stale Medium editor tab(s).`);
+
   const ghostPage = await context.newPage();
   console.log(`Fetching: ${ghostUrl}`);
   const post = await scrapeGhostPost(ghostPage, ghostUrl);
