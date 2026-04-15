@@ -40,17 +40,19 @@ async function downloadImage(url: string): Promise<string> {
 }
 
 async function insertTitle(page: Page, title: string) {
+  // pbcopy handles Unicode correctly; keyboard.type() drops leading Thai chars
+  const tmpTitle = join(tmpdir(), 'medium-title.txt');
+  await writeFile(tmpTitle, title, 'utf8');
+  execSync(`pbcopy < "${tmpTitle}"`);
+  await unlink(tmpTitle);
+
   const titleEl = await page.waitForSelector('h3.graf--title', { timeout: 15000 });
   await titleEl.click();
-  await page.waitForTimeout(500); // wait for editor to be ready before typing
+  await page.waitForTimeout(500);
 
-  // Type the full title via keyboard so every character goes through Medium's
-  // normal input pipeline and gets saved. execCommand('insertText') after the
-  // fact shows in the DOM but bypasses the editor state tracker, so it never saves.
-  // The first keystroke triggers draft creation; waitForURL waits for the redirect.
-  await page.keyboard.type(title, { delay: 20 });
+  await page.keyboard.press('Meta+V');
   await page.waitForURL(/medium\.com\/p\/.+\/edit/, { timeout: 30000 });
-  await page.waitForTimeout(500); // let Medium finish setting up autosave
+  await page.waitForTimeout(500);
 
   await page.keyboard.press('Enter');
   await page.waitForTimeout(300);
