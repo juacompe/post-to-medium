@@ -144,13 +144,12 @@ async function addTags(page: Page, tags: string[]) {
 
   for (const tag of tags.slice(0, 5)) {
     await tagsInput.fill(tag);
-    await page.waitForTimeout(600); // wait for autocomplete dropdown
+    await page.waitForTimeout(1000); // wait for autocomplete dropdown
 
     // Medium topics are from a predefined list — click the first dropdown suggestion.
     // If nothing matches, clear and skip.
     try {
-      const suggestion = page.locator('[role="option"]').first();
-      await suggestion.click({ timeout: 1500 });
+      await page.getByRole('option').first().click({ timeout: 2000 });
       added.push(tag);
     } catch {
       await tagsInput.clear();
