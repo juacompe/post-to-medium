@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "scripts": {
     "post-title": "ts-node post-title.ts",
-    "cross-post": "ts-node cross-post.ts"
+    "cross-post": "ts-node cross-post.ts",
+    "potential-publish": "ts-node potential-publish.ts"
   },
   "dependencies": {
     "playwright": "^1.52.0"
