@@ -78,7 +78,16 @@ async function sanitizeHtml(page: Page, rawHtml: string, limit?: number): Promis
         return frag;
       }
       const newEl = doc.createElement(tag);
-      if (tag === 'a' && el.hasAttribute('href')) newEl.setAttribute('href', el.getAttribute('href')!);
+      if (tag === 'a' && el.hasAttribute('href')) {
+        const href = el.getAttribute('href')!;
+        newEl.setAttribute('href', href);
+        if (el.children.length > 0) {
+          // Complex link (e.g. related-post card wrapping image + title + excerpt).
+          // Keep only the href as link text so Medium gets a clean clickable URL.
+          newEl.appendChild(doc.createTextNode(href));
+          return newEl;
+        }
+      }
       el.childNodes.forEach(c => { const n = clean(c); if (n) newEl.appendChild(n); });
       return newEl;
     }
