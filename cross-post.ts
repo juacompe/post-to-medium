@@ -1,8 +1,8 @@
 import { chromium, Page } from 'playwright';
 import { writeFile, unlink } from 'fs/promises';
+import { execSync } from 'child_process';
 import { tmpdir } from 'os';
-import { extname } from 'path';
-import { join } from 'path';
+import { extname, join } from 'path';
 
 const CDP_URL = 'http://localhost:9222';
 
@@ -55,19 +55,20 @@ async function insertTitle(page: Page, title: string) {
 }
 
 async function pasteContent(page: Page, html: string) {
-  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
-  await page.evaluate(async html => {
-    await navigator.clipboard.write([
-      new ClipboardItem({
-        'text/html': new Blob([html], { type: 'text/html' }),
-        'text/plain': new Blob(
-          [new DOMParser().parseFromString(html, 'text/html').body.textContent ?? ''],
-          { type: 'text/plain' },
-        ),
-      }),
-    ]);
-  }, html);
-  // Cursor is already in the body after Enter — paste directly without clicking
+  // Write HTML to a temp file and set it on the OS clipboard via AppleScript.
+  // navigator.clipboard.write() inside evaluate() requires a user gesture and
+  // may silently fail, leaving the clipboard empty when Meta+V fires.
+  // osascript sets the clipboard at the OS level so Medium receives a real paste.
+  const tmpHtml = join(tmpdir(), 'medium-content.html');
+  await writeFile(tmpHtml, html);
+  try {
+    execSync(`osascript -e 'set the clipboard to (read POSIX file "${tmpHtml}" as «class HTML»)'`);
+  } finally {
+    await unlink(tmpHtml);
+  }
+
+  await page.waitForTimeout(200);
+  // Cursor is already in body (after pressing Enter from title)
   await page.keyboard.press('Meta+V');
   console.log('✓ Content pasted, waiting for autosave...');
   await page.waitForTimeout(5000);
