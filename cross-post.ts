@@ -42,6 +42,7 @@ async function downloadImage(url: string): Promise<string> {
 async function insertTitle(page: Page, title: string) {
   const titleEl = await page.waitForSelector('h3.graf--title', { timeout: 15000 });
   await titleEl.click();
+  await page.waitForTimeout(500); // wait for editor to be ready before typing
 
   // Type the full title via keyboard so every character goes through Medium's
   // normal input pipeline and gets saved. execCommand('insertText') after the
