@@ -83,9 +83,11 @@ async function sanitizeHtml(page: Page, rawHtml: string, limit?: number): Promis
         newEl.setAttribute('href', href);
         if (el.children.length > 0) {
           // Complex link (e.g. related-post card wrapping image + title + excerpt).
-          // Keep only the href as link text so Medium gets a clean clickable URL.
+          // Wrap in <p> so each URL appears on its own line.
           newEl.appendChild(doc.createTextNode(href));
-          return newEl;
+          const p = doc.createElement('p');
+          p.appendChild(newEl);
+          return p;
         }
       }
       el.childNodes.forEach(c => { const n = clean(c); if (n) newEl.appendChild(n); });
