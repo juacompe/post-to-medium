@@ -77,7 +77,8 @@ async function sanitizeHtml(page: Page, rawHtml: string, limit?: number): Promis
         el.childNodes.forEach(c => { const n = clean(c); if (n) frag.appendChild(n); });
         return frag;
       }
-      const newEl = doc.createElement(tag);
+      const TAG_MAP: Record<string, string> = { h3: 'h4' };
+      const newEl = doc.createElement(TAG_MAP[tag] ?? tag);
       if (tag === 'a' && el.hasAttribute('href')) {
         const href = el.getAttribute('href')!;
         newEl.setAttribute('href', href);
