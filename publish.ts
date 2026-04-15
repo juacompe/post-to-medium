@@ -83,9 +83,16 @@ async function submitToOddsTeam(page: Page, story: Story) {
   await submitBtn.click({ timeout: 5000 }).catch(() => {
     // Button might not appear if selection is immediate
   });
+  await page.waitForTimeout(1000);
+
+  // As an editor of odds.team, "Approve and publish" appears — click it to publish immediately
+  const approveBtn = page.getByRole('button').filter({ hasText: /approve and publish/i }).first();
+  await approveBtn.click({ timeout: 5000 }).catch(() => {
+    // Button may not appear if already approved or flow differs
+  });
 
   await page.waitForTimeout(2000);
-  console.log(`✓ Submitted "${story.title}" to odds.team`);
+  console.log(`✓ Submitted and published "${story.title}" to odds.team`);
 }
 
 async function main() {
