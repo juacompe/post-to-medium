@@ -4,7 +4,8 @@
   "scripts": {
     "post-title": "ts-node post-title.ts",
     "cross-post": "ts-node cross-post.ts",
-    "potential-publish": "ts-node potential-publish.ts"
+    "potential-publish": "ts-node potential-publish.ts",
+    "publish": "ts-node publish.ts"
   },
   "dependencies": {
     "playwright": "^1.52.0"

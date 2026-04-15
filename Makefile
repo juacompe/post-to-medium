@@ -15,3 +15,6 @@ cp:
 
 potential-publish:
 	npm run potential-publish
+
+publish:
+	npm run publish
