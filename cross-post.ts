@@ -47,7 +47,7 @@ async function insertTitle(page: Page, title: string) {
   // normal input pipeline and gets saved. execCommand('insertText') after the
   // fact shows in the DOM but bypasses the editor state tracker, so it never saves.
   // The first keystroke triggers draft creation; waitForURL waits for the redirect.
-  await page.keyboard.type(title);
+  await page.keyboard.type(title, { delay: 20 });
   await page.waitForURL(/medium\.com\/p\/.+\/edit/, { timeout: 30000 });
   await page.waitForTimeout(500); // let Medium finish setting up autosave
 
