@@ -151,12 +151,13 @@ async function addTags(page: Page, tags: string[]) {
 
     // Medium topics are from a predefined list — click the first dropdown suggestion.
     // If nothing matches, clear and skip.
-    try {
-      await page.getByRole('option').first().click({ timeout: 2000 });
-      added.push(tag);
-    } catch {
-      await tagsInput.clear();
-    }
+    // Navigate into the autocomplete dropdown with ArrowDown then confirm with Enter.
+    // This avoids brittle CSS/role selectors and works regardless of dropdown structure.
+    await page.keyboard.press('ArrowDown');
+    await page.waitForTimeout(200);
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(300);
+    added.push(tag);
   }
 
   // Leave the publish dialog open so the user can decide to publish or save as draft.
