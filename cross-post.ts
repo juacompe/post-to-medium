@@ -1,8 +1,8 @@
 import { chromium, Page } from 'playwright';
 import { writeFile, unlink } from 'fs/promises';
+import { execSync } from 'child_process';
 import { tmpdir } from 'os';
 import { extname, join } from 'path';
-
 
 const CDP_URL = 'http://localhost:9222';
 
@@ -63,42 +63,54 @@ async function insertTitle(page: Page, title: string) {
   console.log(`✓ Title: "${title}"`);
 }
 
-async function extractParagraphs(page: Page, rawHtml: string, limit?: number): Promise<{ tag: string; text: string }[]> {
+async function sanitizeHtml(page: Page, rawHtml: string, limit?: number): Promise<string> {
   return page.evaluate(({ raw, limit }: { raw: string; limit?: number }) => {
+    const ALLOWED = new Set([
+      'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+      'ul', 'ol', 'li', 'blockquote', 'pre', 'code',
+      'strong', 'em', 'b', 'i', 'u', 's', 'br', 'a',
+    ]);
     const doc = new DOMParser().parseFromString(raw, 'text/html');
-    const blocks = doc.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, blockquote, pre');
-    const all = limit ? Array.from(blocks).slice(0, limit) : Array.from(blocks);
-    return all
-      .map(el => ({ tag: el.tagName.toLowerCase(), text: (el.textContent ?? '').trim() }))
-      .filter(b => b.text);
+    function clean(node: Node): Node | null {
+      if (node.nodeType === 3) return node.cloneNode();
+      if (node.nodeType !== 1) return null;
+      const el = node as Element;
+      const tag = el.tagName.toLowerCase();
+      if (!ALLOWED.has(tag)) {
+        const frag = doc.createDocumentFragment();
+        el.childNodes.forEach(c => { const n = clean(c); if (n) frag.appendChild(n); });
+        return frag;
+      }
+      const newEl = doc.createElement(tag);
+      if (tag === 'a' && el.hasAttribute('href')) newEl.setAttribute('href', el.getAttribute('href')!);
+      el.childNodes.forEach(c => { const n = clean(c); if (n) newEl.appendChild(n); });
+      return newEl;
+    }
+    const out = doc.createElement('div');
+    doc.body.childNodes.forEach(c => { const n = clean(c); if (n) out.appendChild(n); });
+    if (limit) {
+      const blocks = out.querySelectorAll('p, h1, h2, h3, h4, h5, h6, ul, ol, blockquote, pre');
+      Array.from(blocks).slice(limit).forEach(el => el.remove());
+    }
+    return out.innerHTML;
   }, { raw: rawHtml, limit });
 }
 
-async function typeContent(page: Page, rawHtml: string, limit?: number) {
-  const blocks = await extractParagraphs(page, rawHtml, limit);
-
-  // Type each paragraph via keyboard events so Medium's editor state updates
-  // and autosave triggers — execCommand('insertHTML') inserts into the DOM but
-  // bypasses Medium's internal state tracker, so the draft never saves.
-  for (const { tag, text } of blocks) {
-    // Use Medium's markdown shortcuts to preserve basic structure
-    let prefix = '';
-    if (tag === 'h1' || tag === 'h2') prefix = '# ';
-    else if (tag === 'h3') prefix = '## ';
-    else if (tag === 'h4') prefix = '### ';
-    else if (tag === 'blockquote') prefix = '> ';
-    else if (tag === 'li') prefix = '- ';
-
-    if (prefix) {
-      await page.keyboard.type(prefix);
-      await page.waitForTimeout(100); // give Medium time to apply the markdown shortcut
-    }
-    await page.keyboard.type(text);
-    await page.keyboard.press('Enter');
+async function copyToClipboard(page: Page, rawHtml: string, limit?: number): Promise<void> {
+  const html = await sanitizeHtml(page, rawHtml, limit);
+  const tmp = join(tmpdir(), 'medium-content.html');
+  await writeFile(tmp, html);
+  try {
+    execSync(`osascript -e 'set the clipboard to (read POSIX file "${tmp}" as «class HTML»)'`);
+  } finally {
+    await unlink(tmp);
   }
+  console.log('✓ Content copied to clipboard');
+}
 
-  console.log(`✓ ${blocks.length} paragraphs typed, waiting for autosave...`);
-  await page.waitForTimeout(3000);
+async function waitForUser(message: string): Promise<void> {
+  process.stdout.write(`\n${message}\nPress Enter to continue...`);
+  await new Promise<void>(resolve => process.stdin.once('data', resolve));
 }
 
 async function uploadFeatureImage(page: Page, imageUrl: string) {
@@ -173,7 +185,8 @@ async function main() {
   await page.goto('https://medium.com/new-story');
 
   await insertTitle(page, post.title);
-  await typeContent(page, post.html, limit);
+  await copyToClipboard(page, post.html, limit);
+  await waitForUser('👉 Click inside the Medium editor body, then press Cmd+V to paste.');
 
   if (post.featureImage) {
     await uploadFeatureImage(page, post.featureImage);
