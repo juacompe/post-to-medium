@@ -6,36 +6,53 @@ const STORIES_URL = 'https://medium.com/me/stories/public';
 interface Story {
   title: string;
   url: string;
-  publication: string | null;
+  inOddsTeam: boolean;
 }
 
 async function scrapeMyStories(page: Page): Promise<Story[]> {
   await page.goto(STORIES_URL, { waitUntil: 'networkidle' });
   return page.evaluate(() => {
-    const results: { title: string; url: string; publication: string | null }[] = [];
+    const storyPattern = /-([a-f0-9]{8,})(?:[/?#]|$)/;
+    const results: { title: string; url: string; inOddsTeam: boolean }[] = [];
     const seen = new Set<string>();
 
-    // Each story row has a title link and optionally a "Published in <pub>" label
-    document.querySelectorAll('a[href]').forEach(a => {
-      const href = (a as HTMLAnchorElement).href;
-      // Story links contain a hex-like hash at the end
-      if (!/-[a-f0-9]{8,}(?:[/?#]|$)/.test(href)) return;
-      if (seen.has(href)) return;
-      seen.add(href);
+    document.querySelectorAll('a[href]').forEach(el => {
+      const a = el as HTMLAnchorElement;
+      if (!storyPattern.test(a.href)) return;
 
-      const headingEl = a.querySelector('h2, h3') ?? (
-        a.closest('article, [data-testid]')?.querySelector('h2, h3')
-      );
-      const title = headingEl?.textContent?.trim();
+      const m = a.href.match(storyPattern);
+      if (!m || seen.has(m[1])) return;
+      seen.add(m[1]);
+
+      // Grab title from heading inside or near the link
+      const heading =
+        a.querySelector('h2, h3') ??
+        a.closest('article, [data-testid]')?.querySelector('h2, h3');
+      const title = heading?.textContent?.trim();
       if (!title) return;
 
-      // Look for a "Published in <name>" label near this story
-      const card = a.closest('article') ?? a.closest('[data-testid]') ?? a.parentElement;
-      const pubText = card?.textContent ?? '';
-      const pubMatch = pubText.match(/Published in ([^\n•]+)/);
-      const publication = pubMatch ? pubMatch[1].trim() : null;
+      // Walk up the DOM to find the row-level container, then check for an
+      // odds-team link in the same row (the Publication column).
+      // Stop as soon as we find a container that also has a heading of its own
+      // (meaning we've gone too far and reached a multi-story container).
+      let container: Element | null = a.parentElement;
+      let inOddsTeam = false;
+      let levels = 0;
+      while (container && container !== document.body && levels < 12) {
+        // If we've gone past the story's own heading, we're too far up
+        const headings = container.querySelectorAll('h2, h3');
+        if (headings.length > 1) break; // multiple stories — stop
 
-      results.push({ title, url: href, publication });
+        const pubLink = container.querySelector(
+          'a[href*="odds-team"], a[href*="odds.team"]',
+        );
+        if (pubLink) { inOddsTeam = true; break; }
+
+        container = container.parentElement;
+        levels++;
+      }
+
+      results.push({ title, url: a.href, inOddsTeam });
     });
 
     return results;
@@ -53,10 +70,7 @@ async function main() {
   await page.close();
   await browser.close();
 
-  const candidates = stories.filter(s => {
-    if (!s.publication) return true;                          // no publication → candidate
-    return !s.publication.toLowerCase().includes('odds');     // not odds.team → candidate
-  });
+  const candidates = stories.filter(s => !s.inOddsTeam);
 
   if (candidates.length === 0) {
     console.log('\n✅ All your recent stories are already in odds-team publication.');
