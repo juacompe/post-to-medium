@@ -1,43 +1,41 @@
 import { chromium, Page } from 'playwright';
 
 const CDP_URL     = 'http://localhost:9222';
-const MY_PROFILE  = 'https://medium.com/@juacompe';
-const PUBLICATION = 'https://medium.com/odds-team';
+const STORIES_URL = 'https://medium.com/me/stories/public';
 
-function extractStoryId(url: string): string | null {
-  // Medium story URLs end with a hex hash, e.g. "story-slug-a1b2c3d4e5f6"
-  const m = url.match(/-([a-f0-9]{8,})(?:[/?#]|$)/);
-  return m ? m[1] : null;
+interface Story {
+  title: string;
+  url: string;
+  publication: string | null;
 }
 
-async function scrapeStories(page: Page, url: string): Promise<{ title: string; url: string }[]> {
-  await page.goto(url, { waitUntil: 'networkidle' });
+async function scrapeMyStories(page: Page): Promise<Story[]> {
+  await page.goto(STORIES_URL, { waitUntil: 'networkidle' });
   return page.evaluate(() => {
-    const storyIdPattern = /-([a-f0-9]{8,})(?:[/?#]|$)/;
-    const seenIds = new Set<string>();
-    const results: { title: string; url: string }[] = [];
+    const results: { title: string; url: string; publication: string | null }[] = [];
+    const seen = new Set<string>();
 
+    // Each story row has a title link and optionally a "Published in <pub>" label
     document.querySelectorAll('a[href]').forEach(a => {
       const href = (a as HTMLAnchorElement).href;
-      const m = href.match(storyIdPattern);
-      if (!m) return;
-      const id = m[1];
-      if (seenIds.has(id)) return;
-      seenIds.add(id);
+      // Story links contain a hex-like hash at the end
+      if (!/-[a-f0-9]{8,}(?:[/?#]|$)/.test(href)) return;
+      if (seen.has(href)) return;
+      seen.add(href);
 
-      // Prefer a link that directly wraps a heading (common Medium pattern)
-      const headingInLink = a.querySelector('h2, h3');
-      if (headingInLink?.textContent?.trim()) {
-        results.push({ title: headingInLink.textContent.trim(), url: href });
-        return;
-      }
+      const headingEl = a.querySelector('h2, h3') ?? (
+        a.closest('article, [data-testid]')?.querySelector('h2, h3')
+      );
+      const title = headingEl?.textContent?.trim();
+      if (!title) return;
 
-      // Fall back: look for a heading in the nearest article/card ancestor
-      const card = a.closest('article') ?? a.closest('[data-testid]');
-      const heading = card?.querySelector('h2, h3');
-      if (heading?.textContent?.trim()) {
-        results.push({ title: heading.textContent.trim(), url: href });
-      }
+      // Look for a "Published in <name>" label near this story
+      const card = a.closest('article') ?? a.closest('[data-testid]') ?? a.parentElement;
+      const pubText = card?.textContent ?? '';
+      const pubMatch = pubText.match(/Published in ([^\n•]+)/);
+      const publication = pubMatch ? pubMatch[1].trim() : null;
+
+      results.push({ title, url: href, publication });
     });
 
     return results;
@@ -49,17 +47,16 @@ async function main() {
   const context = browser.contexts()[0];
   const page = await context.newPage();
 
-  console.log('Fetching your stories…');
-  const myStories = await scrapeStories(page, MY_PROFILE);
-
-  console.log('Fetching odds-team publication stories…');
-  const pubStories = await scrapeStories(page, PUBLICATION);
+  console.log('Fetching your published stories…');
+  const stories = await scrapeMyStories(page);
 
   await page.close();
   await browser.close();
 
-  const pubIds = new Set(pubStories.map(s => extractStoryId(s.url)).filter(Boolean));
-  const candidates = myStories.filter(s => !pubIds.has(extractStoryId(s.url)));
+  const candidates = stories.filter(s => {
+    if (!s.publication) return true;                          // no publication → candidate
+    return !s.publication.toLowerCase().includes('odds');     // not odds.team → candidate
+  });
 
   if (candidates.length === 0) {
     console.log('\n✅ All your recent stories are already in odds-team publication.');
